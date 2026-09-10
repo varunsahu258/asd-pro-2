@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from pathlib import Path
+import argparse
 
 import numpy as np
 import pandas as pd
@@ -129,3 +130,44 @@ def run_loso_hcan(
             "y_pred": predicted, "model_name": "hcan",
         }, index=test.index))
     return pd.concat(prediction_frames).sort_index().reset_index(drop=True)
+
+
+def main(argv: list[str] | None = None) -> None:
+    """CLI wrapper for baseline and HCAN LOSO training."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--model", choices=("baseline", "hcan"), required=True)
+    parser.add_argument("--data", required=True, help="Input training parquet")
+    parser.add_argument("--out", required=True, help="Internal predictions parquet")
+    parser.add_argument("--checkpoint-dir", help="Checkpoint directory (model-specific default if omitted)")
+    parser.add_argument("--epochs", type=int, default=200)
+    parser.add_argument("--device", default="cuda")
+    parser.add_argument("--seed", type=int, default=0)
+    args = parser.parse_args(argv)
+    frame = pd.read_parquet(args.data)
+    if args.model == "baseline":
+        import joblib
+
+        from asd_gen_gap.models.baseline import baseline_feature_columns, make_baseline_model
+
+        fitted_models: list[object] = []
+
+        def factory() -> object:
+            model = make_baseline_model(random_state=args.seed)
+            fitted_models.append(model)
+            return model
+
+        predictions = run_loso(frame, factory, baseline_feature_columns(frame))
+        checkpoint_dir = Path(args.checkpoint_dir or "results/checkpoints/baseline")
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        for fold, model in enumerate(fitted_models):
+            joblib.dump(model, checkpoint_dir / f"fold_{fold}.joblib")
+    else:
+        predictions = run_loso_hcan(frame, epochs=args.epochs, device=args.device,
+                                    checkpoint_dir=args.checkpoint_dir or "results/checkpoints/hcan", seed=args.seed)
+    destination = Path(args.out)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    predictions.to_parquet(destination, index=False)
+
+
+if __name__ == "__main__":
+    main()

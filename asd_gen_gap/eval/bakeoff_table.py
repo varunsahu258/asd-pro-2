@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import argparse
 
 import numpy as np
 import pandas as pd
@@ -128,3 +129,18 @@ def write_bakeoff_table(predictions_dir: str | Path = "results/predictions", *,
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(markdown, encoding="utf-8")
     return table
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--predictions-dir", default="results/predictions")
+    parser.add_argument("--out", default="results/table_internal_bakeoff.md")
+    parser.add_argument("--n-resamples", type=int, default=5_000)
+    parser.add_argument("--random-state", type=int, default=0)
+    args = parser.parse_args(argv)
+    write_bakeoff_table(args.predictions_dir, output_path=args.out, n_resamples=args.n_resamples,
+                        random_state=args.random_state)
+
+
+if __name__ == "__main__":
+    main()
