@@ -1,0 +1,14 @@
+dataset_paths:
+  abide_i: "data/ABIDE_I"
+  abide_ii_raw: "data/ABIDE_II"
+  abide_ii_processed: "data/ABIDE_II_processed"
+  yeo_mapping_csv: "PLACEHOLDER_SET_ME_YEO_MAPPING_CSV"
+external_sites:
+  - ABIDEII-UCLA_1
+  - ABIDEII-KUL_3
+  - ABIDEII-U_MIA_1
+  - ABIDEII-NYU_2
+motion:
+  max_mean_fd: 0.2
+random_seed: 42
+output_dir: "results"
