@@ -18,7 +18,7 @@ def _write_cohort(root: Path) -> None:
     pd.DataFrame({
         "SUB_ID": ["one", "two", "three"], "SITE_ID": ["A", "B", "B"],
         "DX_GROUP": [1, 2, 1], "AGE_AT_SCAN": [10, 11, 12], "SEX": [1, 2, 1],
-        "FIQ": [100, 101, 102], "func_mean_fd": [0.1, 0.1, 0.3],
+        "FIQ": [100, 101, 102], "HANDEDNESS_CATEGORY": ["R", "L", "ambidextrous"], "func_mean_fd": [0.1, 0.1, 0.3],
     }).to_csv(root / "Phenotypic_V1_0b_preprocessed1.csv", index=False)
     for subject_id in ("one", "two", "three"):
         np.savetxt(root / f"{subject_id}_rois_cc200.1D", [[1, 2, 3], [2, 1, 2], [3, 3, 1]])
@@ -32,7 +32,7 @@ def test_build_dataset_end_to_end_and_site_filtering(tmp_path: Path) -> None:
     result = build_dataset("I", output, config, sites=["B"])
     persisted = pd.read_parquet(output)
 
-    expected_columns = {"subject_id", "dataset", "site", "dx_group", "age_site_z", "sex", "fiq_site_z", "conn_0_1", "conn_0_2", "conn_1_2"}
+    expected_columns = {"subject_id", "dataset", "site", "dx_group", "age_site_z", "sex", "fiq_site_z", "handedness", "conn_0_1", "conn_0_2", "conn_1_2"}
     assert len(result) == 1
     assert result["subject_id"].tolist() == ["two"]
     assert set(persisted.columns) == expected_columns

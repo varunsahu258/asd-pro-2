@@ -20,6 +20,7 @@ dependencies = [
   "nilearn",
   "nibabel",
   "joblib",
+  "matplotlib",
 ]
 
 [project.optional-dependencies]
