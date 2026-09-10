@@ -13,6 +13,7 @@ from __future__ import annotations
 import copy
 import warnings
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -90,6 +91,7 @@ class SemanticAttention(nn.Module):
         transformed = torch.tanh(self.transform(stacked))
         scores = torch.matmul(transformed.mean(dim=0), self.q)  # one shared score per meta-path
         weights = torch.softmax(scores, dim=0)
+        self.last_weights = weights.detach().cpu()
         return (stacked * weights.view(1, -1, 1)).sum(dim=1)
 
 
@@ -140,6 +142,35 @@ def hcan_feature_columns(df: pd.DataFrame) -> list[str]:
     return columns
 
 
+def load_hcan_from_checkpoint(checkpoint_path: str | Path, device: str | torch.device = "cpu") -> tuple[HCANModel, list[str]]:
+    """Reconstruct an evaluation-ready HCAN model from a saved checkpoint."""
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    if not isinstance(checkpoint, dict) or not {"state_dict", "config"}.issubset(checkpoint):
+        raise ValueError(f"Invalid HCAN checkpoint: {checkpoint_path}")
+    config = dict(checkpoint["config"])
+    model = HCANModel(
+        input_dim=int(config["input_dim"]), hidden_size=int(config.get("hidden_size", 20)),
+        num_layers=int(config.get("num_layers", 2)), dropout_rate=float(config.get("dropout_rate", 0.6)),
+        edge_types=config.get("edge_types", DEFAULT_EDGE_TYPES), num_classes=int(config.get("num_classes", 2)),
+    ).to(device)
+    model.load_state_dict(checkpoint["state_dict"])
+    model.config = config
+    feature_cols = list(config.get("feature_cols", []))
+    model.feature_cols = feature_cols
+    model.class_values = list(config.get("class_values", [0, 1]))
+    model.eval()
+    return model, feature_cols
+
+
+def model_summary(model: HCANModel) -> dict[str, object]:
+    """Return lightweight architecture metadata for evaluation checkpoints."""
+    return {
+        "trainable_params": sum(parameter.numel() for parameter in model.parameters() if parameter.requires_grad),
+        "hidden_size": model.config["hidden_size"], "num_layers": model.config["num_layers"],
+        "edge_types": model.config["edge_types"],
+    }
+
+
 def _device(device: str | torch.device) -> torch.device:
     requested = torch.device(device)
     if requested.type == "cuda" and not torch.cuda.is_available():
@@ -183,15 +214,19 @@ def train_hcan(train_df: pd.DataFrame, val_df: pd.DataFrame | None = None, *, ep
         validation_frame["_hcan_label"] = pd.Categorical(validation_frame["dx_group"], categories=classes).codes
         validation = _tensors(validation_frame, features, edge_types, active_device)
     best_state, best_loss, stalled = None, float("inf"), 0
+    loss_history: list[float] = []
+    val_loss_history: list[float] = []
     for epoch in range(epochs):
         model.train(); optimizer.zero_grad()
         loss = F.cross_entropy(model(x, graph), labels)
         loss.backward(); optimizer.step()
         monitored_loss = float(loss.detach().cpu())
+        loss_history.append(monitored_loss)
         if validation is not None:
             model.eval()
             with torch.no_grad():
                 monitored_loss = float(F.cross_entropy(model(validation[0], validation[2]), validation[1]).cpu())
+            val_loss_history.append(monitored_loss)
         if monitored_loss < best_loss:
             best_loss, stalled, best_state = monitored_loss, 0, copy.deepcopy(model.state_dict())
         else:
@@ -200,5 +235,7 @@ def train_hcan(train_df: pd.DataFrame, val_df: pd.DataFrame | None = None, *, ep
                 break
     if best_state is not None:
         model.load_state_dict(best_state)
-    model.training_metrics = {"loss": best_loss, "epochs_trained": epoch + 1}
+    model.training_metrics = {"loss": best_loss, "epochs_trained": epoch + 1, "loss_history": loss_history}
+    if validation is not None:
+        model.training_metrics["val_loss_history"] = val_loss_history
     return model

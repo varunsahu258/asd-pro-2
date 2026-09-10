@@ -39,6 +39,21 @@ def test_combined_limitations_uses_real_site_counts_wide_ci_and_pipeline_note(tm
     (tmp_path / "abide_ii_preproc_manifest.csv").write_text("subject_id,status\na,ok\n", encoding="utf-8")
 
     text = generate_limitations(tmp_path)
+    metric_columns = {
+        "internal_sensitivity", "external_sensitivity", "sensitivity_gap",
+        "internal_specificity", "external_specificity", "specificity_gap",
+        "internal_f1", "external_f1", "f1_gap",
+        "internal_balanced_accuracy", "external_balanced_accuracy", "balanced_accuracy_gap",
+        "internal_pr_auc", "external_pr_auc", "pr_auc_gap",
+        "internal_brier", "external_brier", "brier_gap",
+    }
+    assert metric_columns.issubset(report.columns)
+    metric_values = report.loc[:, [
+        column for column in report.columns
+        if any(metric in column for metric in ("sensitivity", "specificity", "f1", "balanced_accuracy"))
+        and not column.endswith("_gap")
+    ]]
+    assert metric_values.apply(lambda column: column.between(0, 1) | column.isna()).all().all()
     assert report.loc[0, "ci_width_flag"] == "wide"
     assert "imprecise" in text
     assert "custom minimal pipeline" in text

@@ -80,18 +80,19 @@ def run_loso_hcan(
     device: str = "cuda",
     checkpoint_dir: str | Path = "results/checkpoints/hcan",
     seed: int = 0,
+    model_name: str = "hcan",
     **train_kwargs: object,
 ) -> pd.DataFrame:
-    """Run LOSO using the sex/handedness-only HCAN adaptation.
+    """Run LOSO using the HCAN adaptation.
 
     HCAN is adapted from Shao, Fu & Chen (2023). Its original site meta-path is
-    deliberately absent: at inference each held-out subject is appended to the
-    training graph solely through sex and handedness, never site identity.
+    deliberately absent by default: at inference each held-out subject is
+    appended through sex and handedness unless ``edge_types`` opts into site.
     """
     # Keep torch-geometric optional for users of the non-neural baselines.
     import torch
 
-    from asd_gen_gap.models.hcan import build_heterogeneous_graph, hcan_feature_columns, train_hcan
+    from asd_gen_gap.models.hcan import build_heterogeneous_graph, hcan_feature_columns, model_summary, train_hcan
 
     required = {"subject_id", "site", "dx_group", "sex", "handedness"}
     missing = required.difference(df.columns)
@@ -109,7 +110,7 @@ def run_loso_hcan(
         model = train_hcan(train, epochs=epochs, device=device, seed=seed + fold_number, **train_kwargs)
         active_device = next(model.parameters()).device
         # This graph extends, rather than replaces, the fitted training graph.
-        # Its construction is restricted by hcan.py to sex and handedness.
+        # The fitted configuration determines which edges connect held-out data.
         inference = pd.concat([train, test], ignore_index=True)
         graph = {name: edge.to(active_device) for name, edge in build_heterogeneous_graph(inference, model.config["edge_types"]).items()}
         features = torch.tensor(inference.loc[:, feature_cols].to_numpy(dtype=np.float32), device=active_device)
@@ -119,7 +120,7 @@ def run_loso_hcan(
         test_probabilities = probabilities[len(train):, 1]
         class_values = np.asarray(model.class_values)
         predicted = class_values[(test_probabilities >= 0.5).astype(int)]
-        metrics = {**model.training_metrics, "held_out_site": str(site), "n_train": len(train), "n_test": len(test)}
+        metrics = {**model.training_metrics, **model_summary(model), "held_out_site": str(site), "n_train": len(train), "n_test": len(test)}
         torch.save(
             {"state_dict": model.state_dict(), "config": model.config, "seed": seed + fold_number, "metrics": metrics},
             destination / f"fold_{fold_number}_{str(site)}.pt",
@@ -127,7 +128,7 @@ def run_loso_hcan(
         prediction_frames.append(pd.DataFrame({
             "subject_id": test["subject_id"].to_numpy(), "site": test["site"].to_numpy(),
             "dx_group": test["dx_group"].to_numpy(), "y_prob": test_probabilities,
-            "y_pred": predicted, "model_name": "hcan",
+            "y_pred": predicted, "model_name": model_name,
         }, index=test.index))
     return pd.concat(prediction_frames).sort_index().reset_index(drop=True)
 
@@ -142,6 +143,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--epochs", type=int, default=200)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--edge-types", default="sex,handedness", help="Comma-separated HCAN edge types")
+    parser.add_argument("--model-name", default=None, help="Prediction model name (defaults to --model)")
     args = parser.parse_args(argv)
     frame = pd.read_parquet(args.data)
     if args.model == "baseline":
@@ -162,8 +165,10 @@ def main(argv: list[str] | None = None) -> None:
         for fold, model in enumerate(fitted_models):
             joblib.dump(model, checkpoint_dir / f"fold_{fold}.joblib")
     else:
+        edge_types = tuple(edge_type.strip() for edge_type in args.edge_types.split(","))
         predictions = run_loso_hcan(frame, epochs=args.epochs, device=args.device,
-                                    checkpoint_dir=args.checkpoint_dir or "results/checkpoints/hcan", seed=args.seed)
+                                    checkpoint_dir=args.checkpoint_dir or "results/checkpoints/hcan", seed=args.seed,
+                                    edge_types=edge_types, model_name=args.model_name or args.model)
     destination = Path(args.out)
     destination.parent.mkdir(parents=True, exist_ok=True)
     predictions.to_parquet(destination, index=False)
