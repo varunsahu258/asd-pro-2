@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import argparse
 from pathlib import Path
 
 import pandas as pd
@@ -50,3 +51,15 @@ def write_limitations(output_path: str | Path, results_dir: str | Path = "result
     text = generate_limitations(results_dir)
     Path(output_path).write_text(text + "\n", encoding="utf-8")
     return text
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--results-dir", default="results")
+    parser.add_argument("--out", default="results/limitations.md")
+    args = parser.parse_args(argv)
+    write_limitations(args.out, args.results_dir)
+
+
+if __name__ == "__main__":
+    main()

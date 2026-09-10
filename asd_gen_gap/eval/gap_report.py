@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import argparse
 from pathlib import Path
 
 import numpy as np
@@ -82,3 +83,19 @@ def generate_gap_report(predictions_dir: str | Path = "results/predictions", *,
     destination.parent.mkdir(parents=True, exist_ok=True)
     report.to_csv(destination, index=False)
     return report
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--predictions-dir", default="results/predictions")
+    parser.add_argument("--out", default="results/gap_report.csv")
+    parser.add_argument("--n-resamples", type=int, default=5_000)
+    parser.add_argument("--wide-external-ci-width", type=float, default=WIDE_EXTERNAL_CI_WIDTH)
+    parser.add_argument("--random-state", type=int, default=0)
+    args = parser.parse_args(argv)
+    generate_gap_report(args.predictions_dir, output_path=args.out, n_resamples=args.n_resamples,
+                        wide_external_ci_width=args.wide_external_ci_width, random_state=args.random_state)
+
+
+if __name__ == "__main__":
+    main()
