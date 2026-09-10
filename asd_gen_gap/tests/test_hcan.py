@@ -41,3 +41,9 @@ def test_hcan_graph_and_loso_cpu_checkpoint_smoke(tmp_path: Path) -> None:
     assert len(checkpoints) == frame["site"].nunique()
     checkpoint = torch.load(checkpoints[0], weights_only=True)
     assert {"state_dict", "config", "seed", "metrics"}.issubset(checkpoint)
+
+
+def test_hcan_graph_supports_site_edges() -> None:
+    graph = build_heterogeneous_graph(_fixture(), ("sex", "handedness", "site"))
+    assert "site" in graph
+    assert graph["site"].shape[1] > 0

@@ -1,6 +1,7 @@
 """Tests for leave-one-site-out prediction generation."""
 
 import pandas as pd
+import pytest
 from sklearn.linear_model import LogisticRegression
 
 from asd_gen_gap.eval.loso import run_loso
@@ -49,3 +50,17 @@ def test_run_loso_accepts_any_sklearn_probability_estimator():
         ["conn_0_1", "conn_0_2"],
     )
     assert set(predictions["model_name"]) == {"LogisticRegression"}
+
+
+def test_run_loso_hcan_uses_custom_model_name_with_site_edges(tmp_path):
+    pytest.importorskip("torch")
+    pytest.importorskip("torch_geometric")
+    from asd_gen_gap.eval.loso import run_loso_hcan
+
+    frame = synthetic_dataset()
+    frame["handedness"] = ["R", "R", "L", "L"] * 3
+    predictions = run_loso_hcan(
+        frame, epochs=2, device="cpu", checkpoint_dir=tmp_path, hidden_size=4,
+        edge_types=("sex", "handedness", "site"), model_name="hcan_site",
+    )
+    assert set(predictions["model_name"]) == {"hcan_site"}

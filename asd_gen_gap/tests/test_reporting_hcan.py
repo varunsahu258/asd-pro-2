@@ -29,7 +29,13 @@ def test_bakeoff_and_external_evaluation_read_hcan_named_fixtures(tmp_path: Path
     assert set(internal["model_name"]) == {"baseline", "hcan"}
     assert set(internal["scope"]) == {"pooled", "site"}
     assert len(internal) == 6  # two pooled rows and two models for each of two sites
-    assert {"accuracy_ci_low", "accuracy_ci_high", "auc_ci_low", "auc_ci_high"}.issubset(internal.columns)
+    assert {
+        "accuracy_ci_low", "accuracy_ci_high", "auc_ci_low", "auc_ci_high",
+        "sensitivity", "specificity", "f1", "balanced_accuracy",
+    }.issubset(internal.columns)
+    assert internal[["sensitivity", "specificity", "f1", "balanced_accuracy"]].apply(
+        lambda column: column.between(0, 1) | column.isna()
+    ).all().all()
     assert set(internal.attrs["pairwise_tests"]["test"]) == {"DeLong AUC", "McNemar accuracy"}
     markdown = (tmp_path / "table_internal_bakeoff.md").read_text(encoding="utf-8")
     assert "# Internal model bake-off" in markdown

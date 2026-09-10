@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import pickle
 from pathlib import Path
-from typing import Literal
 
 import numpy as np
 import pandas as pd
@@ -63,33 +62,24 @@ def _hcan_checkpoint(checkpoint_dir: Path, fold: int) -> Path:
 def _predict_hcan(frame: pd.DataFrame, checkpoint_path: Path, *, device: str = "cpu") -> tuple[np.ndarray, np.ndarray]:
     import torch
 
-    from asd_gen_gap.models.hcan import HCANModel, build_heterogeneous_graph, hcan_feature_columns
+    from asd_gen_gap.models.hcan import build_heterogeneous_graph, hcan_feature_columns, load_hcan_from_checkpoint
 
-    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
-    if not isinstance(checkpoint, dict) or not {"state_dict", "config"}.issubset(checkpoint):
-        raise ValueError(f"Invalid HCAN checkpoint: {checkpoint_path}")
-    config = dict(checkpoint["config"])
-    feature_cols = list(config.get("feature_cols", hcan_feature_columns(frame)))
+    model, feature_cols = load_hcan_from_checkpoint(checkpoint_path, device=device)
+    if not feature_cols:
+        feature_cols = hcan_feature_columns(frame)
     _require_columns(frame, feature_cols)
-    model = HCANModel(
-        input_dim=int(config["input_dim"]), hidden_size=int(config.get("hidden_size", 20)),
-        num_layers=int(config.get("num_layers", 2)), dropout_rate=float(config.get("dropout_rate", 0.6)),
-        edge_types=config.get("edge_types", ("sex", "handedness")), num_classes=int(config.get("num_classes", 2)),
-    ).to(device)
-    model.load_state_dict(checkpoint["state_dict"])
-    model.eval()
     graph = {name: edge.to(device) for name, edge in build_heterogeneous_graph(frame, model.config["edge_types"]).items()}
     features = torch.tensor(frame.loc[:, feature_cols].to_numpy(dtype=np.float32), device=device)
     with torch.no_grad():
         probabilities = torch.softmax(model(features, graph), dim=1).cpu().numpy()
-    class_values = np.asarray(config.get("class_values", [0, 1]))
+    class_values = np.asarray(model.class_values)
     if probabilities.shape[1] != len(class_values) or not np.any(class_values == 1):
         raise ValueError("HCAN checkpoint must define a class labelled 1")
     positive = probabilities[:, int(np.flatnonzero(class_values == 1)[0])]
     return positive, class_values[(positive >= 0.5).astype(int)]
 
 
-def run_external_evaluation(model_name: Literal["baseline", "hcan"], fold: int, data_path: str | Path,
+def run_external_evaluation(model_name: str, fold: int, data_path: str | Path,
                             output_path: str | Path, *, override: bool = False,
                             baseline_model_path: str | Path | None = None,
                             checkpoint_dir: str | Path = "results/checkpoints/hcan",
@@ -108,10 +98,10 @@ def run_external_evaluation(model_name: Literal["baseline", "hcan"], fold: int, 
         _require_columns(frame, features)
         probabilities = _positive_probabilities(model, frame.loc[:, features])
         predicted = (probabilities >= 0.5).astype(int)
-    elif model_name == "hcan":
-        probabilities, predicted = _predict_hcan(frame, _hcan_checkpoint(Path(checkpoint_dir), fold), device=device)
     else:
-        raise ValueError(f"Unknown model: {model_name}")
+        # The checkpoint config fully determines edge_types, so HCAN variants
+        # work through this path without any model-name-specific changes.
+        probabilities, predicted = _predict_hcan(frame, _hcan_checkpoint(Path(checkpoint_dir), fold), device=device)
     predictions = pd.DataFrame({
         "subject_id": frame["subject_id"].to_numpy(), "site": frame["site"].to_numpy(),
         "dx_group": frame["dx_group"].to_numpy(), "y_prob": probabilities,
@@ -123,12 +113,10 @@ def run_external_evaluation(model_name: Literal["baseline", "hcan"], fold: int, 
 
 
 def evaluate_external_predictions(predictions_dir: str | Path = "results/predictions") -> pd.DataFrame:
-    """Summarize already-written external predictions for both models."""
+    """Summarize already-written external predictions for all discovered models."""
     rows: list[dict[str, object]] = []
-    for model_name in ("baseline", "hcan"):
-        path = Path(predictions_dir) / f"{model_name}_external.parquet"
-        if not path.is_file():
-            raise FileNotFoundError(f"Missing external predictions: {path}")
+    for path in sorted(Path(predictions_dir).glob("*_external.parquet")):
+        model_name = path.name.removesuffix("_external.parquet")
         predictions = pd.read_parquet(path)
         if missing := {"dx_group", "y_prob", "y_pred"}.difference(predictions.columns):
             raise ValueError(f"{path} is missing prediction columns: {sorted(missing)}")
@@ -140,7 +128,7 @@ def evaluate_external_predictions(predictions_dir: str | Path = "results/predict
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model", choices=("baseline", "hcan"), required=True)
+    parser.add_argument("--model", required=True)
     parser.add_argument("--fold", type=int, required=True)
     parser.add_argument("--data", required=True, help="ABIDE II parquet dataset")
     parser.add_argument("--out", required=True, help="Predictions parquet path")

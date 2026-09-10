@@ -38,7 +38,7 @@ def export_paper_tables(results_dir: str | Path = "results", *, output_path: str
         if "external_validation_status" in report and (report["external_validation_status"] == "no external validation performed").any():
             sections.append("No external validation performed.")
         else:
-            columns = [column for column in ("model_name", "internal_auc", "external_auc", "auc_gap", "external_ci_width", "ci_width_flag", "external_site_counts") if column in report]
+            columns = [column for column in ("model_name", "internal_auc", "external_auc", "auc_gap", "pr_auc_gap", "accuracy_gap", "sensitivity_gap", "f1_gap", "external_ci_width", "ci_width_flag", "external_site_counts") if column in report]
             sections.append(_markdown(report.loc[:, columns]))
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text("\n\n".join(sections) + "\n", encoding="utf-8")
