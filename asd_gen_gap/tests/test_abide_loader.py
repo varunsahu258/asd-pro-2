@@ -3,7 +3,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from asd_gen_gap.data.abide_loader import load_abide_i
+from asd_gen_gap.data.abide_loader import load_abide_i, standardize_handedness
 from asd_gen_gap.data.phenotype import filter_by_motion, normalize_phenotypes
 
 
@@ -20,6 +20,7 @@ def _write_abide_fixture(root: Path, subject_ids: list[str]) -> None:
             "AGE_AT_SCAN": [10.0 + index for index in range(len(subject_ids))],
             "SEX": [1] * len(subject_ids),
             "FIQ": [100.0 + index for index in range(len(subject_ids))],
+            "HANDEDNESS_CATEGORY": ["R", "L"][: len(subject_ids)],
             "func_mean_fd": [0.1, 0.3][: len(subject_ids)],
         }
     ).to_csv(root / "Phenotypic_V1_0b_preprocessed1.csv", index=False)
@@ -33,10 +34,11 @@ def test_load_abide_i_standardizes_columns_and_locates_timeseries(tmp_path: Path
     loaded = load_abide_i(_config(tmp_path))
 
     assert list(loaded.columns) == [
-        "subject_id", "site", "dx_group", "age", "sex", "fiq", "func_mean_fd", "timeseries_path",
+        "subject_id", "site", "dx_group", "age", "sex", "fiq", "func_mean_fd", "handedness", "timeseries_path",
     ]
     assert loaded.loc[0, "subject_id"] == "1001"
     assert Path(loaded.loc[1, "timeseries_path"]).name == "1002_rois_cc200.1D"
+    assert loaded["handedness"].tolist() == ["R", "L"]
 
 
 def test_load_abide_i_reports_missing_timeseries_subjects(tmp_path: Path) -> None:
@@ -68,3 +70,9 @@ def test_normalization_and_subject_level_motion_filtering() -> None:
     assert filtered["subject_id"].tolist() == ["a", "c"]
     assert report["excluded_subject_ids"] == ["b"]
     assert report["method"] == "summary-level subject exclusion (not frame-level scrubbing)"
+
+
+def test_handedness_standardization_keeps_unknown_values_explicit() -> None:
+    assert standardize_handedness(pd.Series(["left", "R", "ambidextrous", "unrecorded", None])).tolist() == [
+        "L", "R", "Ambi", "Unknown", "Unknown"
+    ]

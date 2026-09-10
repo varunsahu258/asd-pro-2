@@ -19,6 +19,21 @@ _COLUMN_MAP = {
 }
 
 
+def standardize_handedness(values: pd.Series) -> pd.Series:
+    """Map ABIDE handedness values to ``L``, ``R``, ``Ambi``, or ``Unknown``.
+
+    Missing and unrecognised source values remain explicit as ``Unknown``; they
+    are never imputed from another phenotype or silently removed.
+    """
+    normalized = values.astype("string").str.strip().str.lower()
+    mapping = {
+        "l": "L", "left": "L", "left-handed": "L", "left handed": "L",
+        "r": "R", "right": "R", "right-handed": "R", "right handed": "R",
+        "ambi": "Ambi", "ambidextrous": "Ambi", "mixed": "Ambi", "mixed-handed": "Ambi",
+    }
+    return normalized.map(mapping).fillna("Unknown").astype("string")
+
+
 def _config_value(config: Any, *keys: str) -> Any:
     """Read a nested setting from a mapping or a Pydantic-style config object."""
 
@@ -60,6 +75,8 @@ def load_abide_i(config: Any) -> pd.DataFrame:
     phenotype_path = _phenotype_csv(abide_root)
     phenotypes = pd.read_csv(phenotype_path, dtype={"SUB_ID": "string"})
     missing_columns = [column for column in _COLUMN_MAP if column not in phenotypes.columns]
+    if "HANDEDNESS_CATEGORY" not in phenotypes.columns:
+        missing_columns.append("HANDEDNESS_CATEGORY")
     if missing_columns:
         raise ValueError(
             f"Phenotypic CSV {phenotype_path} is missing required columns: "
@@ -67,6 +84,7 @@ def load_abide_i(config: Any) -> pd.DataFrame:
         )
 
     loaded = phenotypes.loc[:, list(_COLUMN_MAP)].rename(columns=_COLUMN_MAP).copy()
+    loaded["handedness"] = standardize_handedness(phenotypes["HANDEDNESS_CATEGORY"])
     loaded["subject_id"] = loaded["subject_id"].astype("string").str.strip()
     paths = loaded["subject_id"].map(
         lambda subject_id: _timeseries_path(abide_root, str(subject_id))

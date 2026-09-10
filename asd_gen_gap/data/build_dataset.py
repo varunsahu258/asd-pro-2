@@ -16,7 +16,7 @@ from .phenotype import filter_by_motion, normalize_phenotypes
 
 
 _REQUIRED_PHENOTYPE_COLUMNS = {
-    "subject_id", "site", "dx_group", "age", "sex", "fiq"
+    "subject_id", "site", "dx_group", "age", "sex", "fiq", "handedness"
 }
 
 
@@ -63,6 +63,7 @@ def _load_abide_ii(config: dict[str, Any]) -> pd.DataFrame:
     rename_map = {
         "SUB_ID": "subject_id", "SITE_ID": "site", "DX_GROUP": "dx_group",
         "AGE_AT_SCAN": "age", "SEX": "sex", "FIQ": "fiq", "func_mean_fd": "mean_fd",
+        "HANDEDNESS_CATEGORY": "handedness",
     }
     manifest = manifest.rename(columns={key: value for key, value in rename_map.items() if key in manifest})
     missing = sorted(_REQUIRED_PHENOTYPE_COLUMNS - set(manifest.columns))
@@ -72,6 +73,10 @@ def _load_abide_ii(config: dict[str, Any]) -> pd.DataFrame:
         raise ValueError(f"ABIDE II manifest {manifest_path} is missing required column: mean_fd")
 
     manifest = manifest.copy()
+    if "handedness" in manifest:
+        from .abide_loader import standardize_handedness
+
+        manifest["handedness"] = standardize_handedness(manifest["handedness"])
     manifest["subject_id"] = manifest["subject_id"].astype("string")
     if "timeseries_path" in manifest:
         manifest["timeseries_path"] = manifest["timeseries_path"].map(
@@ -127,7 +132,7 @@ def build_dataset(
         connectivity = compute_connectivity(_load_timeseries(subject["timeseries_path"], dataset))
         row = {
             key: subject[key]
-            for key in ("subject_id", "site", "dx_group", "age_site_z", "sex", "fiq_site_z")
+            for key in ("subject_id", "site", "dx_group", "age_site_z", "sex", "fiq_site_z", "handedness")
         }
         row["dataset"] = dataset
         row.update(flatten_upper_triangle(connectivity))
